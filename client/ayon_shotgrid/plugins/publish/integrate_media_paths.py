@@ -11,6 +11,9 @@ from ayon_core.lib import filter_profiles
 class IntegrateMoviePath(pyblish.api.InstancePlugin):
     """Store paths of published representations on the Flow (SG) Version.
 
+    The class keeps its historical name because plugin settings are stored
+    under it ('publish/IntegrateMoviePath').
+
     Each settings profile maps Flow Version fields (e.g. 'sg_path_to_movie',
     'sg_path_to_frames' or any custom text field) to the published
     representation whose path should be written there.
@@ -27,7 +30,7 @@ class IntegrateMoviePath(pyblish.api.InstancePlugin):
     """
 
     order = pyblish.api.IntegratorOrder + 0.45
-    label = "Integrate event for Flow movie paths"
+    label = "Integrate Flow media paths"
     settings_category = "shotgrid"
 
     profiles = []

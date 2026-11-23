@@ -450,7 +450,7 @@ class IntegrateMoviePathModel(BaseSettingsModel):
 class ShotgridPublishPlugins(BaseSettingsModel):
     IntegrateMoviePath: IntegrateMoviePathModel = SettingsField(
         default_factory=IntegrateMoviePathModel,
-        title="Synchronize movie path information to Flow(SG)",
+        title="Synchronize media paths to Flow (SG) Versions",
         scope=["studio", "project"],
     )
 
