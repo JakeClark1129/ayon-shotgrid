@@ -386,7 +386,21 @@ class MoviePathProfile(BaseSettingsModel):
     repre_names: list[str] = SettingsField(
         default_factory=list,
         title="Selected representation names",
-        description="Representation names used for Version.sg_path_to_movie"
+        description=(
+            "Representation names used for Version.sg_path_to_movie, in "
+            "order of preference. If the chosen one is an image sequence "
+            "it is also used for sg_path_to_frames."
+        ),
+    )
+    frames_repre_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Representation names for frames",
+        description=(
+            "Image sequence representations used for "
+            "Version.sg_path_to_frames, in order of preference (e.g. "
+            "'exr'). Lets the movie field use a movie while the frames "
+            "field uses the frames. Empty: frames follow the selection above."
+        ),
     )
 
 
