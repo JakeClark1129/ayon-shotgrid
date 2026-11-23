@@ -365,8 +365,46 @@ class ShotgridCompatibilitySettings(BaseSettingsModel):
         return value
 
 
+def _sequence_format_enum():
+    return [
+        {"value": "hashes", "label": "Hashes (render.####.exr)"},
+        {"value": "printf", "label": "printf (render.%04d.exr)"},
+    ]
+
+
+class MoviePathFieldModel(BaseSettingsModel):
+    """Flow Version field filled with the path of a published file."""
+    _layout = "expanded"
+    sg_field: str = SettingsField(
+        "",
+        title="Flow Version field",
+        description=(
+            "Field on the Flow (SG) Version that receives the path, e.g. "
+            "'sg_path_to_movie', 'sg_path_to_frames' or a custom text field."
+        ),
+    )
+    repre_names: list[str] = SettingsField(
+        default_factory=list,
+        title="Representation names",
+        description=(
+            "Published representations to take the path from, in order of "
+            "preference; the first one published is used."
+        ),
+    )
+    sequences_only: bool = SettingsField(
+        False,
+        title="Image sequences only",
+        description="Ignore single-file representations for this field.",
+    )
+    sequence_format: str = SettingsField(
+        "hashes",
+        title="Image sequence path format",
+        enum_resolver=_sequence_format_enum,
+    )
+
+
 class MoviePathProfile(BaseSettingsModel):
-    """Profile to select representation to use in Version.sg_path_to_movie"""
+    """Profile to select which published paths are stored on the Version"""
     _layout = "expanded"
     host_names: list[str] = SettingsField(
         default_factory=list, title="Host names"
@@ -383,23 +421,21 @@ class MoviePathProfile(BaseSettingsModel):
     task_names: list[str] = SettingsField(
         default_factory=list,
         title="Task names")
-    repre_names: list[str] = SettingsField(
+    fields: list[MoviePathFieldModel] = SettingsField(
         default_factory=list,
-        title="Selected representation names",
+        title="Flow field mappings",
         description=(
-            "Representation names used for Version.sg_path_to_movie, in "
-            "order of preference. If the chosen one is an image sequence "
-            "it is also used for sg_path_to_frames."
+            "Flow Version field <- published representation path. When "
+            "set, 'Selected representation names' below is ignored."
         ),
     )
-    frames_repre_names: list[str] = SettingsField(
+    repre_names: list[str] = SettingsField(
         default_factory=list,
-        title="Representation names for frames",
+        title="Selected representation names (legacy)",
         description=(
-            "Image sequence representations used for "
-            "Version.sg_path_to_frames, in order of preference (e.g. "
-            "'exr'). Lets the movie field use a movie while the frames "
-            "field uses the frames. Empty: frames follow the selection above."
+            "Used only without field mappings: the first representation "
+            "found fills sg_path_to_movie, and sg_path_to_frames too when "
+            "it is an image sequence. Falls back to the thumbnail."
         ),
     )
 

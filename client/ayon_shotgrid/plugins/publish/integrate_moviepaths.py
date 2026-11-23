@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 import ayon_api
 import pyblish.api
@@ -9,7 +9,15 @@ from ayon_core.lib import filter_profiles
 
 
 class IntegrateMoviePath(pyblish.api.InstancePlugin):
-    """Looks for representation to be marked for source of sg_path_to_movie
+    """Store paths of published representations on the Flow (SG) Version.
+
+    Each settings profile maps Flow Version fields (e.g. 'sg_path_to_movie',
+    'sg_path_to_frames' or any custom text field) to the published
+    representation whose path should be written there.
+
+    Profiles without field mappings keep the previous behaviour: one
+    representation fills 'sg_path_to_movie' (and 'sg_path_to_frames' when it
+    is an image sequence), falling back to the thumbnail.
 
     Dispatches event to update synchronized Version paths to limit race
     conditions.
@@ -43,27 +51,27 @@ class IntegrateMoviePath(pyblish.api.InstancePlugin):
             self.log.debug("Instance does not have published representations")
             return
 
+        representations = [
+            repre_info["representation"]
+            for repre_info in published_representations.values()
+        ]
         profile = self._get_representation_profile(instance)
-        preferred_representation = self._get_preferred_representation(
-            published_representations,
-            profile["repre_names"] if profile else [],
-        )
-        frames_representation = None
-        if profile and profile.get("frames_repre_names"):
-            frames_representation = self._get_preferred_representation(
-                published_representations,
-                profile["frames_repre_names"],
-                sequences_only=True,
-            )
-
         version_entity = instance.data["versionEntity"]
         has_slate = "slate" in version_entity["attrib"]["families"]
-        flow_data = self._add_paths(
-            published_representations,
-            preferred_representation,
-            has_slate,
-            frames_representation=frames_representation,
-        )
+
+        field_mappings = (profile or {}).get("fields") or []
+        if field_mappings:
+            flow_data = self._get_mapped_fields(
+                representations, field_mappings)
+            if flow_data and has_slate:
+                flow_data["sg_frames_have_slate"] = True
+        else:
+            flow_data = self._get_legacy_fields(
+                representations,
+                (profile or {}).get("repre_names") or [],
+                has_slate,
+            )
+
         if not flow_data:
             return
 
@@ -93,114 +101,108 @@ class IntegrateMoviePath(pyblish.api.InstancePlugin):
         )
         return profile
 
-    def _get_preferred_representation(
+    @staticmethod
+    def _is_sequence(representation: Dict[str, Any]) -> bool:
+        return len(representation.get("files") or []) > 1
+
+    def _find_representation(
         self,
-        published_representations: Dict[str, Any],
-        repre_names,
+        representations: List[Dict[str, Any]],
+        repre_names: List[str],
         sequences_only: bool = False,
-    ):
-        """First published representation found from `repre_names`.
-
-        Args:
-            published_representations: Published representations.
-            repre_names (list[str]): Names in order of preference.
-            sequences_only (bool): Only accept image sequences (more than
-                one file), e.g. for 'sg_path_to_frames'.
-        """
-        repre_dict = {
-            repre_info["representation"]["name"]: repre_info["representation"]
-            for repre_info in published_representations.values()
-        }
-
-        for profile_repre_name in repre_names:
-            self.log.debug(
-                f"Looking for representation `{profile_repre_name}`"
-            )
-            preferred_representation = repre_dict.get(profile_repre_name)
-            if not preferred_representation:
+    ) -> Optional[Dict[str, Any]]:
+        """First published representation found from `repre_names`."""
+        by_name = {repre["name"]: repre for repre in representations}
+        for repre_name in repre_names:
+            representation = by_name.get(repre_name)
+            if not representation:
                 continue
-            if sequences_only and len(preferred_representation["files"]) < 2:
-                self.log.debug(
-                    f"`{profile_repre_name}` is not an image sequence")
+            if sequences_only and not self._is_sequence(representation):
+                self.log.debug(f"`{repre_name}` is not an image sequence")
                 continue
-            self.log.debug(
-                f"Using `{profile_repre_name}` as source for Flow paths"
-            )
-            return preferred_representation
+            return representation
         return None
 
-    @staticmethod
-    def _get_frames_path(representation: Dict[str, Any]) -> str:
-        """Path of an image sequence with the frame number as '#'s."""
+    def _get_path(
+        self,
+        representation: Dict[str, Any],
+        sequence_format: str = "hashes",
+    ) -> str:
+        """Local path of a representation.
+
+        Image sequences have their frame number replaced by '####'
+        ('hashes') or '%04d' ('printf').
+        """
         local_path = os.path.normpath(representation["attrib"]["path"])
-        n = 0
+        if not self._is_sequence(representation):
+            return local_path
+
+        padding = 0
         match = re.search(r"\.(\d+)\.", local_path)
         if match:
-            n = len(match.group(1))
-        return re.sub(r"\.\d+\.", f".{n*'#'}.", local_path)
+            padding = len(match.group(1))
+        if sequence_format == "printf":
+            token = f"%0{padding}d" if padding else "%d"
+        else:
+            token = "#" * padding
+        return re.sub(r"\.\d+\.", lambda _: f".{token}.", local_path)
 
-    def _add_paths(
+    def _get_mapped_fields(
         self,
-        published_representations: Dict[str, Any],
-        preferred_representation: Dict[str, Any],
+        representations: List[Dict[str, Any]],
+        field_mappings: List[Dict[str, Any]],
+    ) -> Dict[str, str]:
+        """Flow Version field values from the profile's field mappings."""
+        flow_data = {}
+        for mapping in field_mappings:
+            sg_field = mapping.get("sg_field")
+            if not sg_field:
+                continue
+            representation = self._find_representation(
+                representations,
+                mapping.get("repre_names") or [],
+                sequences_only=mapping.get("sequences_only", False),
+            )
+            if not representation:
+                self.log.debug(
+                    f"No representation found for Flow field `{sg_field}`")
+                continue
+            flow_data[sg_field] = self._get_path(
+                representation, mapping.get("sequence_format", "hashes"))
+            self.log.debug(
+                f"Using `{representation['name']}` for `{sg_field}`")
+        return flow_data
+
+    def _get_legacy_fields(
+        self,
+        representations: List[Dict[str, Any]],
+        repre_names: List[str],
         has_slate: bool,
-        frames_representation: Dict[str, Any] = None,
-    ):
-        """Adds local path to review file to `sg_path_to_*` as metadata.
+    ) -> Dict[str, Any]:
+        """Previous behaviour for profiles without field mappings.
 
         We are storing local paths for external processing, some studios might
         have tools to handle review files in another processes.
         """
-        thumbnail_path = None
-        found_representation = False
-
-        for repre_info in published_representations.values():
-            representation = repre_info["representation"]
-            local_path = representation["attrib"]["path"]
-            local_path = os.path.normpath(local_path)
-
-            representation_name = representation["name"]
-            if (preferred_representation and
-                    representation_name == preferred_representation["name"]):
-                found_representation = preferred_representation
-                break
-
-            if representation_name == "thumbnail":
-                thumbnail_path = local_path
-
         flow_data = {}
-        if found_representation:
-            # clunky guess, not having access to ayon_core.VIDEO_EXTENSIONS
-            if len(found_representation["files"]) == 1:
-                flow_data["sg_path_to_movie"] = local_path
-            else:
-                # Replace the frame number with '###'
-                path_to_frame = self._get_frames_path(found_representation)
-                flow_data.update(
-                    {
-                        "sg_path_to_movie": path_to_frame,
-                        "sg_path_to_frames": path_to_frame,
-                    }
-                )
-
+        representation = self._find_representation(
+            representations, repre_names)
+        if representation:
+            path = self._get_path(representation)
+            flow_data["sg_path_to_movie"] = path
+            if self._is_sequence(representation):
+                flow_data["sg_path_to_frames"] = path
             if has_slate:
                 flow_data["sg_frames_have_slate"] = True
+            return flow_data
 
-        # A dedicated frames representation wins for 'sg_path_to_frames'.
-        if frames_representation:
-            flow_data["sg_path_to_frames"] = self._get_frames_path(
-                frames_representation)
-            flow_data.setdefault("sg_path_to_movie", flow_data[
-                "sg_path_to_frames"])
-            if has_slate:
-                flow_data["sg_frames_have_slate"] = True
-
-        elif thumbnail_path:
+        thumbnail = self._find_representation(representations, ["thumbnail"])
+        if thumbnail:
+            thumbnail_path = self._get_path(thumbnail)
             flow_data.update({
                 "sg_path_to_movie": thumbnail_path,
                 "sg_path_to_frames": thumbnail_path,
             })
-
         return flow_data
 
     def _trigger_event(
