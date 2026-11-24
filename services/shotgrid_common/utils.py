@@ -805,7 +805,8 @@ def check_sg_attribute_exists(
 
 
 # ShotGrid field data types whose values are derived from other fields and
-# therefore never produce change events of their own.
+# therefore never produce change events of their own. Non-editable fields
+# are treated the same way (see `get_sg_derived_fields`).
 SG_DERIVED_FIELD_TYPES = {"calculated"}
 # {entity type: (time read, {field names})}
 _SG_DERIVED_FIELDS_CACHE: Dict[str, tuple] = {}
@@ -813,7 +814,11 @@ _SG_DERIVED_FIELDS_CACHE_SECONDS = 600
 
 
 def get_sg_derived_fields(sg_session, sg_entity_type: str) -> set:
-    """Names of calculated (formula) fields of a ShotGrid entity type.
+    """Names of derived fields of a ShotGrid entity type.
+
+    Calculated (formula) fields, and any other non-editable field: users
+    cannot change those directly, so their values follow other fields and
+    no change event is sent for them. Re-reading them is harmless.
 
     Read from the ShotGrid schema and cached for a few minutes, so fields
     added in ShotGrid are picked up without restarting the services.
@@ -835,8 +840,11 @@ def get_sg_derived_fields(sg_session, sg_entity_type: str) -> set:
     fields = {
         field_name
         for field_name, field_schema in schema.items()
-        if (field_schema.get("data_type") or {}).get("value")
-        in SG_DERIVED_FIELD_TYPES
+        if (
+            (field_schema.get("data_type") or {}).get("value")
+            in SG_DERIVED_FIELD_TYPES
+            or (field_schema.get("editable") or {}).get("value") is False
+        )
     }
     _SG_DERIVED_FIELDS_CACHE[sg_entity_type] = (now, fields)
     return fields

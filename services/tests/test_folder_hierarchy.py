@@ -319,3 +319,53 @@ def test_no_calculated_fields_keeps_previous_behaviour():
     assert utils.get_attribs_to_update_for_sg_change(
         sg, "Shot", "description", {"frameStart": "cut_in"}
     ) == []
+
+
+def test_non_editable_fields_count_as_derived():
+    utils._SG_DERIVED_FIELDS_CACHE.clear()
+    sg = _SchemaShotgrid({
+        "sg_cut_in": {"data_type": {"value": "number"},
+                      "editable": {"value": True}},
+        "sg_handle_start": {"data_type": {"value": "number"},
+                            "editable": {"value": False}},
+    })
+    assert utils.get_sg_derived_fields(sg, "Shot") == {"sg_handle_start"}
+
+
+def _validate(schema, entries):
+    import mock
+    import validate
+
+    class _Sg:
+        def schema_field_read(self, entity_type):
+            return schema
+
+    with mock.patch.object(
+        validate.ayon_api, "get_attributes_schema",
+        return_value={"attributes": []},
+    ):
+        validate.validate_custom_attribs_map(_Sg(), entries)
+
+
+def test_validation_accepts_read_only_and_calculated_fields():
+    schema = {
+        "sg_handle_start": {"data_type": {"value": "calculated"},
+                            "editable": {"value": False}},
+        "sg_handle_end": {"data_type": {"value": "number"},
+                          "editable": {"value": False}},
+    }
+    _validate(schema, [
+        {"ayon": "handleStart", "sg": "handle_start", "type": "integer",
+         "scope": ["Shot"]},
+        {"ayon": "handleEnd", "sg": "handle_end", "type": "integer",
+         "scope": ["Shot"]},
+    ])
+
+
+def test_validation_still_rejects_wrong_types():
+    schema = {"sg_cut_in": {"data_type": {"value": "list"},
+                            "editable": {"value": True},
+                            "properties": {}}}
+    with pytest.raises(ValueError, match="invalid type"):
+        _validate(schema, [{"ayon": "frameStart", "sg": "cut_in",
+                            "type": "integer", "scope": ["Version"]}])

@@ -314,13 +314,26 @@ def validate_custom_attribs_map(
                     field_schema = sg_schemas[scope][field_attempt]
 
                     if not field_schema["editable"]["value"]:
-                        errors.append(
-                            f"SG field {scope}.{field_attempt} "
-                            "is set as non-editable."
+                        # Read-only fields (e.g. calculated fields) still
+                        # sync from Flow to AYON; only writes back fail.
+                        report.append(
+                            f"SG field {scope}.{field_attempt} is not "
+                            "editable: it only syncs from Flow to AYON."
                         )
 
+                    sg_data_type = field_schema["data_type"]["value"]
+                    if sg_data_type == "calculated":
+                        # The schema does not expose the formula's result
+                        # type, so it cannot be checked here.
+                        report.append(
+                            f"SG field {scope}.{field_attempt} is a "
+                            "calculated field: make sure its formula returns "
+                            f'a value usable as AYON type "{entry["type"]}".'
+                        )
+                        break
+
                     conformed_field_type = AY_SG_TYPE_MAPPING.get(
-                        field_schema["data_type"]["value"],
+                        sg_data_type,
                         "unknown"
                     )
 
