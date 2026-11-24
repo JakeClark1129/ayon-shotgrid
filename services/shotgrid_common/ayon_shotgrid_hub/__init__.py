@@ -50,6 +50,7 @@ import ayon_api
 from ayon_api.entity_hub import EntityHub
 
 import validate
+from project_access import sync_project_access
 from utils import get_logger
 
 
@@ -303,6 +304,27 @@ class AyonShotgridHub:
                     "The `source` argument can only be `ayon` or `shotgrid`."
                 )
 
+        self.sync_project_access()
+
+    def sync_project_access(self):
+        """Grant AYON project access to the ShotGrid project's users.
+
+        No-op unless 'Project access sync' is enabled in the settings.
+        Failures are logged and do not fail the calling sync.
+        """
+        try:
+            sync_project_access(
+                self._sg,
+                self._sg_project,
+                self.project_name,
+                self.settings,
+            )
+        except Exception:
+            self.log.error(
+                f"Unable to sync project access for '{self.project_name}'.",
+                exc_info=True,
+            )
+
     def react_to_shotgrid_event(self, sg_event_meta):
         """React to events incoming from Shotgrid
 
@@ -337,6 +359,15 @@ class AyonShotgridHub:
                           f"'entity_revival' for Task | "
                           f"{sg_event_meta['entity_id']}.")
             sg_event_meta["type"] = "entity_revival"
+
+        # People assigned to the project changed: update project access.
+        if (
+            sg_event_meta["entity_type"] == "Project"
+            and sg_event_meta["type"] == "attribute_change"
+            and sg_event_meta.get("attribute_name") == "users"
+        ):
+            self.sync_project_access()
+            return
 
         match sg_event_meta["type"]:
             case "new_entity" | "entity_revival":

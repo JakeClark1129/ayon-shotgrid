@@ -9,6 +9,15 @@ from ayon_server.settings.enum import (
     anatomy_presets_enum,
     folder_types_enum,
 )
+from ayon_server.lib.postgres import Postgres
+
+
+async def access_groups_enum() -> list[str]:
+    """Studio access groups defined in AYON."""
+    rows = await Postgres.fetch(
+        "SELECT name FROM public.access_groups ORDER BY name"
+    )
+    return [row["name"] for row in rows]
 
 
 def default_shotgrid_entities():
@@ -455,6 +464,52 @@ class ShotgridPublishPlugins(BaseSettingsModel):
     )
 
 
+class PermissionGroupMappingModel(BaseSettingsModel):
+    _layout = "compact"
+    sg_permission_group: str = SettingsField(
+        "",
+        title="ShotGrid permission group",
+        description="Name of the ShotGrid permission group, e.g. 'Manager'.",
+    )
+    ayon_access_groups: list[str] = SettingsField(
+        default_factory=list,
+        title="AYON access groups",
+        enum_resolver=access_groups_enum,
+    )
+
+
+class ProjectAccessSyncModel(BaseSettingsModel):
+    """Give AYON users access to projects they are assigned to in ShotGrid.
+
+    Uses the ShotGrid Project 'Users' field. Runs on project sync and when
+    the field changes. Only access granted by this sync is changed or
+    removed; access set by hand in AYON is left alone.
+    """
+    enabled: bool = SettingsField(
+        False,
+        title="Enabled",
+    )
+    default_access_groups: list[str] = SettingsField(
+        default_factory=lambda: ["artist"],
+        title="Default access groups",
+        description=(
+            "AYON access groups given to users whose ShotGrid permission "
+            "group is not listed below."
+        ),
+        enum_resolver=access_groups_enum,
+    )
+    permission_group_mapping: list[PermissionGroupMappingModel] = (
+        SettingsField(
+            default_factory=list,
+            title="Permission group mapping",
+            description=(
+                "ShotGrid permission group -> AYON access groups. Groups "
+                "not listed use the default access groups."
+            ),
+        )
+    )
+
+
 class ShotgridSettings(BaseSettingsModel):
     """ShotGrid integration settings.
 
@@ -536,6 +591,11 @@ class ShotgridSettings(BaseSettingsModel):
     service_settings: ShotgridServiceSettings = SettingsField(
         default_factory=ShotgridServiceSettings,
         title="Service settings",
+        scope=["studio"],
+    )
+    project_access_sync: ProjectAccessSyncModel = SettingsField(
+        default_factory=ProjectAccessSyncModel,
+        title="Project access sync",
         scope=["studio"],
     )
     publish: ShotgridPublishPlugins = SettingsField(
