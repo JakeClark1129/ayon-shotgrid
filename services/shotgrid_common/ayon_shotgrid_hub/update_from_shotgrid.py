@@ -40,6 +40,7 @@ from utils import (
     get_reparenting_from_settings,
     get_asset_category_fields,
     get_asset_category_value,
+    get_attribs_to_update_for_sg_change,
     should_apply_reparenting,
     is_reparentable_sg_type,
     update_ay_entity_custom_attributes,
@@ -655,13 +656,14 @@ def update_ayon_entity_from_sg_event(
     else:
         log.debug(f"Updating AYON Entity: {ay_entity}")
 
-    # Only update the AYON attribute matching the SG field.
-    sg_field = sg_event.get("attribute_name") or ""
-    values_to_update = [
-        ay_attrib
-        for ay_attrib, sg_attrib in (custom_attribs_map or {}).items()
-        if sg_field in (sg_attrib, f"sg_{sg_attrib}")
-    ]
+    # Update the AYON attribute matching the SG field, and attributes
+    # mapped to calculated fields that may depend on it.
+    values_to_update = get_attribs_to_update_for_sg_change(
+        sg_session,
+        sg_ay_dict["attribs"][SHOTGRID_TYPE_ATTRIB],
+        sg_event.get("attribute_name"),
+        custom_attribs_map,
+    )
 
     update_ay_entity_custom_attributes(
         ay_entity,

@@ -271,3 +271,51 @@ def test_master_asset_category_records_its_entity_type():
     dicts, _ = _get_entities(
         sg, MASTER_ASSET_SETTINGS, ["Project", "CustomEntity04"])
     assert dicts["gfx"]["category_of"] == "CustomEntity04"
+
+
+class _SchemaShotgrid:
+    def __init__(self, schema):
+        self.schema = schema
+        self.reads = 0
+
+    def schema_field_read(self, entity_type):
+        self.reads += 1
+        return self.schema
+
+
+def test_calculated_fields_refresh_on_change():
+    utils._SG_DERIVED_FIELDS_CACHE.clear()
+    sg = _SchemaShotgrid({
+        "sg_cut_in": {"data_type": {"value": "number"}},
+        "sg_head_in": {"data_type": {"value": "number"}},
+        "sg_handle_start": {"data_type": {"value": "calculated"}},
+        "sg_handle_end": {"data_type": {"value": "calculated"}},
+    })
+    attribs_map = {
+        "frameStart": "cut_in",
+        "handleStart": "handle_start",
+        "handleEnd": "handle_end",
+        "description": "",
+    }
+
+    # Head In is not mapped, but handles may depend on it.
+    assert utils.get_attribs_to_update_for_sg_change(
+        sg, "Shot", "sg_head_in", attribs_map
+    ) == ["handleStart", "handleEnd"]
+    # Mapped field plus the calculated ones.
+    assert utils.get_attribs_to_update_for_sg_change(
+        sg, "Shot", "sg_cut_in", attribs_map
+    ) == ["frameStart", "handleStart", "handleEnd"]
+    # Schema read once, then cached.
+    assert sg.reads == 1
+
+
+def test_no_calculated_fields_keeps_previous_behaviour():
+    utils._SG_DERIVED_FIELDS_CACHE.clear()
+    sg = _SchemaShotgrid({"sg_cut_in": {"data_type": {"value": "number"}}})
+    assert utils.get_attribs_to_update_for_sg_change(
+        sg, "Shot", "sg_cut_in", {"frameStart": "cut_in", "x": "y"}
+    ) == ["frameStart"]
+    assert utils.get_attribs_to_update_for_sg_change(
+        sg, "Shot", "description", {"frameStart": "cut_in"}
+    ) == []

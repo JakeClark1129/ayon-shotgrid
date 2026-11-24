@@ -7,6 +7,7 @@ import logging
 import collections
 import math
 import tempfile
+import time
 from typing import Dict, Optional, Union, Any, List
 
 import ayon_api
@@ -801,6 +802,77 @@ def check_sg_attribute_exists(
         pass
 
     return False
+
+
+# ShotGrid field data types whose values are derived from other fields and
+# therefore never produce change events of their own.
+SG_DERIVED_FIELD_TYPES = {"calculated"}
+# {entity type: (time read, {field names})}
+_SG_DERIVED_FIELDS_CACHE: Dict[str, tuple] = {}
+_SG_DERIVED_FIELDS_CACHE_SECONDS = 600
+
+
+def get_sg_derived_fields(sg_session, sg_entity_type: str) -> set:
+    """Names of calculated (formula) fields of a ShotGrid entity type.
+
+    Read from the ShotGrid schema and cached for a few minutes, so fields
+    added in ShotGrid are picked up without restarting the services.
+    """
+    now = time.monotonic()
+    cached = _SG_DERIVED_FIELDS_CACHE.get(sg_entity_type)
+    if cached and now - cached[0] < _SG_DERIVED_FIELDS_CACHE_SECONDS:
+        return cached[1]
+
+    try:
+        schema = sg_session.schema_field_read(sg_entity_type)
+    except Exception:
+        log.warning(
+            f"Unable to read the ShotGrid schema of '{sg_entity_type}'.",
+            exc_info=True,
+        )
+        return set()
+
+    fields = {
+        field_name
+        for field_name, field_schema in schema.items()
+        if (field_schema.get("data_type") or {}).get("value")
+        in SG_DERIVED_FIELD_TYPES
+    }
+    _SG_DERIVED_FIELDS_CACHE[sg_entity_type] = (now, fields)
+    return fields
+
+
+def get_attribs_to_update_for_sg_change(
+    sg_session,
+    sg_entity_type: str,
+    changed_sg_field: str,
+    custom_attribs_map: Optional[Dict[str, str]],
+) -> List[str]:
+    """AYON attributes to refresh after `changed_sg_field` changed.
+
+    The attribute mapped to the changed field, plus every attribute mapped
+    to a calculated field of the entity: those can depend on the changed
+    field but ShotGrid sends no events for them (e.g. handles calculated
+    from cut and head/tail frames).
+    """
+    custom_attribs_map = custom_attribs_map or {}
+    changed_sg_field = changed_sg_field or ""
+    attribs = [
+        ay_attrib
+        for ay_attrib, sg_attrib in custom_attribs_map.items()
+        if changed_sg_field in (sg_attrib, f"sg_{sg_attrib}")
+    ]
+
+    derived_fields = get_sg_derived_fields(sg_session, sg_entity_type)
+    if not derived_fields or changed_sg_field in derived_fields:
+        return attribs
+
+    for ay_attrib, sg_attrib in custom_attribs_map.items():
+        if ay_attrib in attribs or not sg_attrib:
+            continue
+        if sg_attrib in derived_fields or f"sg_{sg_attrib}" in derived_fields:
+            attribs.append(ay_attrib)
+    return attribs
 
 
 def get_folder_type_mapping(addon_settings):
