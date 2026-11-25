@@ -257,6 +257,10 @@ class AyonShotgridHub:
                 Shotgrid: {1}""".format(self._ay_project, self._sg_project)
             )
 
+        # First, so the people assigned in ShotGrid can already access the
+        # project when their notes are posted as comments during the sync.
+        self.sync_project_access()
+
         match source:
             case "ayon":
 
@@ -303,8 +307,6 @@ class AyonShotgridHub:
                 raise ValueError(
                     "The `source` argument can only be `ayon` or `shotgrid`."
                 )
-
-        self.sync_project_access()
 
     def sync_project_access(self):
         """Grant AYON project access to the ShotGrid project's users.
