@@ -1,6 +1,6 @@
 """Module that handles creation, update or removal of SG entities based on AYON events.
 """
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import shotgun_api3
 
@@ -507,7 +507,8 @@ def update_sg_entity_from_ayon_event(
                     sg_session,
                     new_attribs,
                     sg_entity_type,
-                    custom_attribs_map
+                    custom_attribs_map,
+                    addon_settings=addon_settings,
                 )
             )
 
@@ -539,6 +540,7 @@ def update_sg_entity_from_ayon_event(
                 [name for name in new_attribs if name in custom_attribs_map],
                 sg_session,
                 custom_attribs_map,
+                addon_settings=addon_settings,
             )
         except Exception:
             log.error(
@@ -556,6 +558,7 @@ def _update_sg_inherited_children(
     attrib_names: List[str],
     sg_session: shotgun_api3.Shotgun,
     custom_attribs_map: Dict[str, str],
+    addon_settings: Optional[Dict[str, Any]] = None,
 ):
     """Update in Shotgrid the children inheriting the changed attributes.
 
@@ -599,6 +602,7 @@ def _update_sg_inherited_children(
                 {name: attribs.get(name) for name in names},
                 sg_type,
                 custom_attribs_map,
+                addon_settings=addon_settings,
             )
 
         if sg_data_cache[cache_key]:

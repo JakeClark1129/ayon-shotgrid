@@ -1665,11 +1665,27 @@ def get_sg_pipeline_steps(
     return sg_steps
 
 
+def get_custom_attribs_scopes(addon_settings) -> Optional[Dict[str, set]]:
+    """{AYON attribute: Flow entity types} from 'Folder Attributes Map'.
+
+    Returns None when the settings are not available.
+    """
+    compatibility = (addon_settings or {}).get("compatibility_settings")
+    if not compatibility or "custom_attribs_map" not in compatibility:
+        return None
+    return {
+        entry["ayon"]: set(entry.get("scope") or [])
+        for entry in compatibility["custom_attribs_map"]
+        if entry.get("ayon") and entry.get("sg")
+    }
+
+
 def get_sg_custom_attributes_data(
     sg_session: shotgun_api3.Shotgun,
     ay_attribs: dict,
     sg_entity_type: str,
     custom_attribs_map: dict,
+    addon_settings: Optional[dict] = None,
 ) -> dict:
     """Get a dictionary with all the extra attributes we want to sync to SG
 
@@ -1680,9 +1696,18 @@ def get_sg_custom_attributes_data(
         sg_entity_type (str): ShotGrid Entity type.
         custom_attribs_map (dict): Dictionary that maps names of attributes in
             AYON to ShotGrid equivalents.
+        addon_settings (Optional[dict]): Addon settings. When given, an
+            attribute is only synced to the entity types in its 'Scope'.
     """
+    scopes = get_custom_attribs_scopes(addon_settings)
     data_to_update = {}
     for ay_attrib, sg_attrib in custom_attribs_map.items():
+        if (
+            scopes is not None
+            and ay_attrib in scopes
+            and sg_entity_type not in scopes[ay_attrib]
+        ):
+            continue
         attrib_value = ay_attribs.get(ay_attrib)
         if attrib_value is None:
             continue
@@ -2677,7 +2702,8 @@ def create_new_sg_entity(
         sg_session,
         attr_values,
         sg_type,
-        custom_attribs_map
+        custom_attribs_map,
+        addon_settings=addon_settings,
     )
 
     try:

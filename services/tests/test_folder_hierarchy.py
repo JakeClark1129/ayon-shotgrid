@@ -463,3 +463,34 @@ def test_version_product_type_field_conversion():
         asyncio.run(conversions.convert_settings_overrides("x", overrides))
         assert overrides["compatibility_settings"] == {
             "version_product_fields": new}
+
+
+class _WritableShotgrid:
+    """Every entity type has a writable 'sg_cut_in' and 'sg_status_list'."""
+
+    def schema_field_read(self, entity_type, field_name=None):
+        if field_name not in ("sg_cut_in", "sg_status_list"):
+            raise RuntimeError("no such field")
+        return {field_name: {"editable": {"value": True},
+                             "data_type": {"value": "number"}}}
+
+
+def test_attribute_map_scope_is_honoured():
+    sg = _WritableShotgrid()
+    attribs_map = {"frameStart": "cut_in", "status": "status_list"}
+    settings = {"compatibility_settings": {"custom_attribs_map": [
+        {"ayon": "frameStart", "sg": "cut_in", "type": "integer",
+         "scope": ["Shot"]},
+    ]}}
+    values = {"frameStart": 1009, "status": "ip"}
+
+    shot = utils.get_sg_custom_attributes_data(
+        sg, values, "Shot", attribs_map, addon_settings=settings)
+    version = utils.get_sg_custom_attributes_data(
+        sg, values, "Version", attribs_map, addon_settings=settings)
+    # Built-in mappings not in the settings (status) are not filtered.
+    assert shot == {"sg_cut_in": 1009, "sg_status_list": "ip"}
+    assert version == {"sg_status_list": "ip"}
+    # Without settings: previous behaviour (no scope filtering).
+    assert utils.get_sg_custom_attributes_data(
+        sg, values, "Version", attribs_map)["sg_cut_in"] == 1009

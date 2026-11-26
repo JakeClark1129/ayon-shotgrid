@@ -250,7 +250,8 @@ def match_ayon_hierarchy_in_shotgrid(
                     sg_session,
                     attrib_values,
                     sg_entity_type,
-                    custom_attribs_map
+                    custom_attribs_map,
+                    addon_settings=addon_settings,
                 )
             )
             if data_to_update:
@@ -338,6 +339,7 @@ def match_ayon_hierarchy_in_shotgrid(
         entity_hub.project_entity.attribs.to_dict(),
         "Project",
         custom_attribs_map,
+        addon_settings=addon_settings,
     )
     sg_session.update(
         "Project",
