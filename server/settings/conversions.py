@@ -47,10 +47,26 @@ def _convert_frames_repre_names(overrides: dict[str, Any]) -> None:
         ]
 
 
+def _convert_version_product_type_field(overrides: dict[str, Any]) -> None:
+    """'version_product_type_field' -> 'version_product_fields' row."""
+    compatibility = overrides.get("compatibility_settings")
+    if not isinstance(compatibility, dict):
+        return
+    if "version_product_type_field" not in compatibility:
+        return
+    sg_field = (compatibility.pop("version_product_type_field") or "").strip()
+    if "version_product_fields" in compatibility:
+        return
+    compatibility["version_product_fields"] = (
+        [{"ayon": "productType", "sg": sg_field}] if sg_field else []
+    )
+
+
 async def convert_settings_overrides(
     source_version: str,
     overrides: dict[str, Any],
 ) -> dict[str, Any]:
     _convert_product_base_types(overrides)
     _convert_frames_repre_names(overrides)
+    _convert_version_product_type_field(overrides)
     return overrides

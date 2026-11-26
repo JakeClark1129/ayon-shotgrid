@@ -419,9 +419,47 @@ def test_product_type_to_text_list_and_entity_fields():
     assert value(sg, "Version", "sg_missing", "comp") is None
 
 
-def test_version_product_type_field_setting():
-    assert utils.get_version_product_type_field({}) == "sg_version_type"
-    assert utils.get_version_product_type_field({"compatibility_settings": {
-        "version_product_type_field": "sg_output_type"}}) == "sg_output_type"
-    assert utils.get_version_product_type_field({"compatibility_settings": {
-        "version_product_type_field": ""}}) is None
+def test_version_product_fields():
+    product = {"name": "renderCompMain", "productType": "comp",
+               "productBaseType": "render"}
+    # Default (settings without the option): previous behaviour.
+    assert utils.get_version_product_field_values(product, {}) == {
+        "sg_version_type": "comp"}
+    settings = {"compatibility_settings": {"version_product_fields": [
+        {"ayon": "productType", "sg": "sg_output_type"},
+        {"ayon": "productBaseType", "sg": "sg_base_type"},
+        {"ayon": "productName", "sg": "sg_product"},
+        {"ayon": "productType", "sg": ""},
+    ]}}
+    assert utils.get_version_product_field_values(product, settings) == {
+        "sg_output_type": "comp",
+        "sg_base_type": "render",
+        "sg_product": "renderCompMain",
+    }
+    # Older products without a base type fall back to the product type.
+    assert utils.get_version_product_field_values(
+        {"name": "x", "productType": "comp"}, settings
+    )["sg_base_type"] == "comp"
+    assert utils.get_version_product_field_values(product, {
+        "compatibility_settings": {"version_product_fields": []}}) == {}
+
+
+def test_version_product_type_field_conversion():
+    import asyncio
+    import importlib.util
+    import os
+
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "server",
+                        "settings", "conversions.py")
+    spec = importlib.util.spec_from_file_location("conversions", path)
+    conversions = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conversions)
+
+    for old, new in (("sg_output_type",
+                      [{"ayon": "productType", "sg": "sg_output_type"}]),
+                     ("", [])):
+        overrides = {"compatibility_settings": {
+            "version_product_type_field": old}}
+        asyncio.run(conversions.convert_settings_overrides("x", overrides))
+        assert overrides["compatibility_settings"] == {
+            "version_product_fields": new}

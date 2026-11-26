@@ -883,14 +883,37 @@ def get_attribs_to_update_for_sg_change(
     return attribs
 
 
-def get_version_product_type_field(addon_settings):
-    """Flow Version field receiving the AYON product type, or None."""
+def get_version_product_fields(addon_settings) -> List[tuple]:
+    """(AYON product value, Flow Version field) pairs from the settings."""
     compatibility = (addon_settings or {}).get("compatibility_settings", {})
-    field = compatibility.get("version_product_type_field")
-    if field is None:
+    entries = compatibility.get("version_product_fields")
+    if entries is None:
         # Settings from before the option existed: previous behaviour.
-        field = "sg_version_type"
-    return field.strip() or None
+        entries = [{"ayon": "productType", "sg": "sg_version_type"}]
+    return [
+        (entry["ayon"], entry["sg"].strip())
+        for entry in entries
+        if entry.get("ayon") and (entry.get("sg") or "").strip()
+    ]
+
+
+def get_version_product_field_values(
+    product_entity: dict, addon_settings
+) -> Dict[str, str]:
+    """{Flow Version field: value} for an AYON product entity."""
+    product_values = {
+        "productType": product_entity.get("productType"),
+        "productBaseType": (
+            product_entity.get("productBaseType")
+            or product_entity.get("productType")
+        ),
+        "productName": product_entity.get("name"),
+    }
+    return {
+        sg_field: product_values[ayon_key]
+        for ayon_key, sg_field in get_version_product_fields(addon_settings)
+        if product_values.get(ayon_key)
+    }
 
 
 def get_sg_field_value_for_text(
@@ -2553,21 +2576,19 @@ def create_new_sg_entity(
         # sync comment for description
         data["description"] = ay_entity.attribs.get("comment")
 
-        # sync productType to the configured Version field
+        # sync product values to the configured Version fields
         product_data = ayon_api.get_product_by_id(
             ay_project_name,
             ay_entity.product_id
         )
-        product_type_field = get_version_product_type_field(addon_settings)
-        if product_type_field and product_data:
-            product_type_value = get_sg_field_value_for_text(
-                sg_session,
-                "Version",
-                product_type_field,
-                product_data["productType"],
-            )
-            if product_type_value is not None:
-                data[product_type_field] = product_type_value
+        if product_data:
+            for sg_field, value in get_version_product_field_values(
+                product_data, addon_settings
+            ).items():
+                sg_value = get_sg_field_value_for_text(
+                    sg_session, "Version", sg_field, value)
+                if sg_value is not None:
+                    data[sg_field] = sg_value
 
         # sync first/last frames
         frame_start = ay_entity.attribs.get("frameStart") or 0

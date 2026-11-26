@@ -241,6 +241,32 @@ class FolderReparentingModel(BaseSettingsModel):
         title="Type grouping",
     )
 
+def _version_product_values_enum():
+    return [
+        {"value": "productType", "label": "Product type"},
+        {"value": "productBaseType", "label": "Product base type"},
+        {"value": "productName", "label": "Product name"},
+    ]
+
+
+class VersionProductFieldModel(BaseSettingsModel):
+    _layout = "compact"
+    ayon: str = SettingsField(
+        "productType",
+        title="AYON product value",
+        enum_resolver=_version_product_values_enum,
+    )
+    sg: str = SettingsField(
+        "",
+        title="Flow Version field",
+        description="e.g. 'sg_version_type' or 'sg_output_type'.",
+    )
+
+
+def default_version_product_fields():
+    return [{"ayon": "productType", "sg": "sg_version_type"}]
+
+
 class FolderTypeMappingModel(BaseSettingsModel):
     _layout = "compact"
     sg_entity_type: str = SettingsField(
@@ -341,16 +367,25 @@ class ShotgridCompatibilitySettings(BaseSettingsModel):
         description=("Parent folders for AYON folders matching to SG types."),
     )
 
-    version_product_type_field: str = SettingsField(
-        "sg_version_type",
-        title="Version field for the product type",
+    version_product_fields: list[VersionProductFieldModel] = SettingsField(
+        title="Version product fields",
+        default_factory=default_version_product_fields,
         description=(
-            "Flow Version field receiving the AYON product type when "
-            "Versions are created from AYON publishes. Text, list or "
-            "entity link fields are supported (entity links are matched "
-            "by 'code' or 'name'). Empty disables it."
+            "Values of the AYON product stored on Flow Versions created "
+            "from AYON publishes. Text, list or entity link fields are "
+            "supported (entity links are matched by 'code' or 'name')."
         ),
     )
+
+    @validator("version_product_fields")
+    def ensure_unique_version_product_fields(cls, value):
+        sg_fields = [entry.sg for entry in value if entry.sg]
+        duplicates = {f for f in sg_fields if sg_fields.count(f) > 1}
+        if duplicates:
+            raise BadRequestException(
+                "Flow field(s) used more than once in Version product "
+                f"fields: {', '.join(sorted(duplicates))}")
+        return value
 
     folder_type_mapping: list[FolderTypeMappingModel] = SettingsField(
         title="Folder type mapping",
