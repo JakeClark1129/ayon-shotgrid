@@ -341,6 +341,17 @@ class ShotgridCompatibilitySettings(BaseSettingsModel):
         description=("Parent folders for AYON folders matching to SG types."),
     )
 
+    version_product_type_field: str = SettingsField(
+        "sg_version_type",
+        title="Version field for the product type",
+        description=(
+            "Flow Version field receiving the AYON product type when "
+            "Versions are created from AYON publishes. Text, list or "
+            "entity link fields are supported (entity links are matched "
+            "by 'code' or 'name'). Empty disables it."
+        ),
+    )
+
     folder_type_mapping: list[FolderTypeMappingModel] = SettingsField(
         title="Folder type mapping",
         default_factory=list,

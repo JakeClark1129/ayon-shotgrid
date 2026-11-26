@@ -369,3 +369,59 @@ def test_validation_still_rejects_wrong_types():
     with pytest.raises(ValueError, match="invalid type"):
         _validate(schema, [{"ayon": "frameStart", "sg": "cut_in",
                             "type": "integer", "scope": ["Version"]}])
+
+
+class _FieldShotgrid:
+    """Fake Flow with a field schema and a few linked entities."""
+
+    def __init__(self, field_schema, entities=None):
+        self.field_schema = field_schema
+        self.entities = entities or {}
+
+    def schema_field_read(self, entity_type, field):
+        if field not in self.field_schema:
+            raise RuntimeError("no such field")
+        return {field: self.field_schema[field]}
+
+    def find_one(self, entity_type, filters, fields):
+        field, _, value = filters[0]
+        for entity in self.entities.get(entity_type, []):
+            if field not in entity:
+                raise RuntimeError("no such field")
+            if entity[field].lower() == value.lower():
+                return entity
+        return None
+
+
+def test_product_type_to_text_list_and_entity_fields():
+    sg = _FieldShotgrid(
+        {
+            "sg_text": {"data_type": {"value": "text"}},
+            "sg_version_type": {
+                "data_type": {"value": "list"},
+                "properties": {"valid_values": {"value": ["Comp", "Plate"]}},
+            },
+            "sg_output_type": {
+                "data_type": {"value": "entity"},
+                "properties": {
+                    "valid_types": {"value": ["CustomNonProjectEntity14"]}},
+            },
+        },
+        {"CustomNonProjectEntity14": [{"id": 7, "code": "comp"}]},
+    )
+    value = utils.get_sg_field_value_for_text
+    assert value(sg, "Version", "sg_text", "comp") == "comp"
+    assert value(sg, "Version", "sg_version_type", "comp") == "Comp"
+    assert value(sg, "Version", "sg_version_type", "element") is None
+    assert value(sg, "Version", "sg_output_type", "comp") == {
+        "type": "CustomNonProjectEntity14", "id": 7}
+    assert value(sg, "Version", "sg_output_type", "element") is None
+    assert value(sg, "Version", "sg_missing", "comp") is None
+
+
+def test_version_product_type_field_setting():
+    assert utils.get_version_product_type_field({}) == "sg_version_type"
+    assert utils.get_version_product_type_field({"compatibility_settings": {
+        "version_product_type_field": "sg_output_type"}}) == "sg_output_type"
+    assert utils.get_version_product_type_field({"compatibility_settings": {
+        "version_product_type_field": ""}}) is None

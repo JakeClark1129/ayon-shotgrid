@@ -883,6 +883,89 @@ def get_attribs_to_update_for_sg_change(
     return attribs
 
 
+def get_version_product_type_field(addon_settings):
+    """Flow Version field receiving the AYON product type, or None."""
+    compatibility = (addon_settings or {}).get("compatibility_settings", {})
+    field = compatibility.get("version_product_type_field")
+    if field is None:
+        # Settings from before the option existed: previous behaviour.
+        field = "sg_version_type"
+    return field.strip() or None
+
+
+def get_sg_field_value_for_text(
+    sg_session,
+    sg_entity_type: str,
+    sg_field: str,
+    text: str,
+):
+    """Value to store `text` in a Flow field, depending on the field type.
+
+    - text: the text itself;
+    - list / status list: the matching valid value (case-insensitive),
+      otherwise None;
+    - entity / multi-entity link: the entity whose 'code' (or 'name')
+      matches, searched in the field's valid entity types, otherwise None.
+
+    Returns None (with a warning) when the field does not exist or the
+    value cannot be stored, so the calling create/update still succeeds.
+    """
+    if not text:
+        return None
+    try:
+        schema = sg_session.schema_field_read(sg_entity_type, sg_field)
+    except Exception:
+        log.warning(
+            f"Flow field {sg_entity_type}.{sg_field} does not exist, "
+            f"'{text}' is not synced to it."
+        )
+        return None
+    field_schema = schema.get(sg_field) or {}
+    data_type = (field_schema.get("data_type") or {}).get("value")
+    properties = field_schema.get("properties") or {}
+
+    if data_type == "text":
+        return text
+
+    if data_type in ("list", "status_list"):
+        valid_values = (properties.get("valid_values") or {}).get(
+            "value") or []
+        for value in valid_values:
+            if value.lower() == text.lower():
+                return value
+        log.warning(
+            f"'{text}' is not a valid value of {sg_entity_type}.{sg_field} "
+            f"(valid: {valid_values})."
+        )
+        return None
+
+    if data_type in ("entity", "multi_entity"):
+        valid_types = (properties.get("valid_types") or {}).get(
+            "value") or []
+        for linked_type in valid_types:
+            for name_field in ("code", "name"):
+                try:
+                    linked = sg_session.find_one(
+                        linked_type, [[name_field, "is", text]], ["id"])
+                except Exception:
+                    # The entity type has no such field.
+                    continue
+                if linked:
+                    link = {"type": linked_type, "id": linked["id"]}
+                    return [link] if data_type == "multi_entity" else link
+        log.warning(
+            f"No {valid_types} entity named '{text}' found for "
+            f"{sg_entity_type}.{sg_field}."
+        )
+        return None
+
+    log.warning(
+        f"Flow field {sg_entity_type}.{sg_field} has type '{data_type}', "
+        f"'{text}' cannot be stored in it."
+    )
+    return None
+
+
 def get_folder_type_mapping(addon_settings):
     """Return {ShotGrid entity type: AYON folder type} from settings.
 
@@ -2470,19 +2553,21 @@ def create_new_sg_entity(
         # sync comment for description
         data["description"] = ay_entity.attribs.get("comment")
 
-        # sync productType as version type
-        product_data =  ayon_api.get_product_by_id(
+        # sync productType to the configured Version field
+        product_data = ayon_api.get_product_by_id(
             ay_project_name,
             ay_entity.product_id
         )
-        sg_version_field = sg_session.schema_field_read(
-            "Version", "sg_version_type")["sg_version_type"]
-        sg_valid_values = (
-            sg_version_field["properties"]["valid_values"]["value"]
-        )
-
-        if product_data["productType"] in sg_valid_values:
-            data["sg_version_type"] = product_data["productType"]
+        product_type_field = get_version_product_type_field(addon_settings)
+        if product_type_field and product_data:
+            product_type_value = get_sg_field_value_for_text(
+                sg_session,
+                "Version",
+                product_type_field,
+                product_data["productType"],
+            )
+            if product_type_value is not None:
+                data[product_type_field] = product_type_value
 
         # sync first/last frames
         frame_start = ay_entity.attribs.get("frameStart") or 0
