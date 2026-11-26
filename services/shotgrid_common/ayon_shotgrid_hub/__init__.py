@@ -546,7 +546,8 @@ class AyonShotgridHub:
                 upload_ay_reviewable_to_sg(
                     self._sg,
                     self._ay_project,  # EntityHub
-                    ay_version_id
+                    ay_version_id,
+                    addon_settings=self.settings,
                 )
             case ("flow.version.mediapath"):
                 payload = ayon_event["payload"]
@@ -557,7 +558,8 @@ class AyonShotgridHub:
                 update_movie_paths(
                     self._sg,
                     self._ay_project,  # EntityHub
-                    payload
+                    payload,
+                    addon_settings=self.settings,
                 )
             case (
                 "entity_list.created" |

@@ -494,3 +494,56 @@ def test_attribute_map_scope_is_honoured():
     # Without settings: previous behaviour (no scope filtering).
     assert utils.get_sg_custom_attributes_data(
         sg, values, "Version", attribs_map)["sg_cut_in"] == 1009
+
+
+class _Attribs(dict):
+    def get(self, key, default=None):
+        return super().get(key, default)
+
+
+class _Version:
+    def __init__(self, families, base_type, sg_id=None):
+        self.attribs = _Attribs(families=families, shotgridId=sg_id,
+                                shotgridType="Version" if sg_id else None)
+        self.parent = type("Product", (), {
+            "product_base_type": base_type, "product_type": base_type})()
+
+
+def _version_sync(**version_sync):
+    return {"compatibility_settings": {"version_sync": version_sync}}
+
+
+def test_version_sync_filter():
+    review_render = _Version(["render", "review"], "render")
+    workfile = _Version(["workfile"], "workfile")
+
+    # Default: everything is synced (previous behaviour).
+    assert utils.should_sync_version_to_sg(workfile, {})[0]
+
+    only_review = _version_sync(only_reviewable=True)
+    assert utils.should_sync_version_to_sg(review_render, only_review)[0]
+    ok, reason = utils.should_sync_version_to_sg(workfile, only_review)
+    assert not ok and "reviewable" in reason
+
+    base_types = _version_sync(product_base_types=["Render", "review"])
+    assert utils.should_sync_version_to_sg(review_render, base_types)[0]
+    assert not utils.should_sync_version_to_sg(workfile, base_types)[0]
+
+
+def test_skipped_versions_do_not_error_on_reviewable_or_paths():
+    import mock
+
+    workfile = _Version(["workfile"], "workfile")
+    hub = mock.Mock(project_name="P")
+    hub.get_version_by_id.return_value = workfile
+    sg = mock.Mock()
+    settings = _version_sync(only_reviewable=True)
+
+    utils.upload_ay_reviewable_to_sg(sg, hub, "v1", addon_settings=settings)
+    utils.update_movie_paths(sg, hub, {"versionId": "v1"},
+                             addon_settings=settings)
+    sg.update.assert_not_called()
+
+    # A version that should exist in Flow but does not is still an error.
+    with pytest.raises(ValueError, match="not yet synched"):
+        utils.update_movie_paths(sg, hub, {"versionId": "v1"})

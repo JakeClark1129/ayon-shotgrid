@@ -883,6 +883,46 @@ def get_attribs_to_update_for_sg_change(
     return attribs
 
 
+def should_sync_version_to_sg(ay_version_entity, addon_settings):
+    """Whether an AYON version gets a Flow Version ('Version sync').
+
+    Args:
+        ay_version_entity (VersionEntity): EntityHub version; its parent is
+            the product.
+        addon_settings (dict): Addon settings.
+
+    Returns:
+        tuple[bool, str]: Decision, and the reason when it is False.
+    """
+    compatibility = (addon_settings or {}).get("compatibility_settings", {})
+    version_sync = compatibility.get("version_sync") or {}
+    only_reviewable = version_sync.get("only_reviewable", False)
+    base_types = {
+        base_type.strip().lower()
+        for base_type in version_sync.get("product_base_types") or []
+        if base_type.strip()
+    }
+
+    if only_reviewable:
+        families = ay_version_entity.attribs.get("families") or []
+        if "review" not in families:
+            return False, "it was not published as reviewable"
+
+    if base_types:
+        product = ay_version_entity.parent
+        base_type = (
+            getattr(product, "product_base_type", None)
+            or getattr(product, "product_type", None)
+            or ""
+        )
+        if base_type.lower() not in base_types:
+            return False, (
+                f"its product base type '{base_type}' is not one of "
+                f"{sorted(base_types)}"
+            )
+    return True, ""
+
+
 def get_version_product_fields(addon_settings) -> List[tuple]:
     """(AYON product value, Flow Version field) pairs from the settings."""
     compatibility = (addon_settings or {}).get("compatibility_settings", {})
@@ -2729,7 +2769,8 @@ def create_new_sg_entity(
 def update_movie_paths(
     sg_session: shotgun_api3.Shotgun,
     ayon_entity_hub: ayon_api.entity_hub.EntityHub,
-    payload: dict
+    payload: dict,
+    addon_settings: Optional[dict] = None,
 ):
     """Uses prepare sg_* field to store sg_path_to_* to particular Version"""
     ay_version_id = payload.pop("versionId")
@@ -2746,6 +2787,12 @@ def update_movie_paths(
     sg_version_type = ay_version_entity.attribs.get(SHOTGRID_TYPE_ATTRIB)
 
     if not sg_version_id:
+        should_sync, reason = should_sync_version_to_sg(
+            ay_version_entity, addon_settings)
+        if not should_sync:
+            log.info(f"No Flow Version for '{ay_version_id}' ({reason}), "
+                     "media paths not synced.")
+            return
         raise ValueError(f"Version '{ay_version_id} not yet synched to SG.")
 
     sg_session.update(
@@ -2759,6 +2806,7 @@ def upload_ay_reviewable_to_sg(
     sg_session: shotgun_api3.Shotgun,
     ayon_entity_hub: ayon_api.entity_hub.EntityHub,
     ay_version_id: int,
+    addon_settings: Optional[dict] = None,
 ):
     log.info(f"Uploading reviewable for '{ay_version_id}'")
     ay_project_name = ayon_entity_hub.project_name
@@ -2774,6 +2822,12 @@ def upload_ay_reviewable_to_sg(
     sg_version_type = ay_version_entity.attribs.get(SHOTGRID_TYPE_ATTRIB)
 
     if not sg_version_id:
+        should_sync, reason = should_sync_version_to_sg(
+            ay_version_entity, addon_settings)
+        if not should_sync:
+            log.info(f"No Flow Version for '{ay_version_id}' ({reason}), "
+                     "reviewable not uploaded.")
+            return
         raise ValueError(f"Version '{ay_version_id} not yet synched to SG.")
 
     get_revieawables_url = (

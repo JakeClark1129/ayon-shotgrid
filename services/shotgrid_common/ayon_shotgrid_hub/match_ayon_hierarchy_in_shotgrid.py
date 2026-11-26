@@ -2,7 +2,7 @@ import json
 import itertools
 import collections
 import shotgun_api3
-from typing import Dict, List, Union, Any
+from typing import Dict, List, Union, Any, Optional
 
 import ayon_api
 from ayon_api.entity_hub import (
@@ -22,6 +22,7 @@ from utils import (
     get_sg_entity_as_ay_dict,
     get_sg_custom_attributes_data,
     get_sg_entity_type,
+    should_sync_version_to_sg,
     create_new_sg_entity,
     upload_ay_reviewable_to_sg,
     get_sg_statuses,
@@ -128,7 +129,8 @@ def match_ayon_hierarchy_in_shotgrid(
             )
             # even the folder is not synced, we need to process its children
             _add_items_to_queue(
-                entity_hub, ay_entity_deck, ay_entity, sg_ay_parent_entity
+                entity_hub, ay_entity_deck, ay_entity, sg_ay_parent_entity,
+                addon_settings=addon_settings,
             )
             continue
 
@@ -146,7 +148,8 @@ def match_ayon_hierarchy_in_shotgrid(
             )
             # even the folder is not synced, we need to process its children
             _add_items_to_queue(
-                entity_hub, ay_entity_deck, ay_entity, sg_ay_parent_entity
+                entity_hub, ay_entity_deck, ay_entity, sg_ay_parent_entity,
+                addon_settings=addon_settings,
             )
             continue
 
@@ -170,7 +173,8 @@ def match_ayon_hierarchy_in_shotgrid(
             )
             # even the folder is not synced, we need to process its children
             _add_items_to_queue(
-                entity_hub, ay_entity_deck, ay_entity, sg_ay_parent_entity
+                entity_hub, ay_entity_deck, ay_entity, sg_ay_parent_entity,
+                addon_settings=addon_settings,
             )
             continue
 
@@ -321,7 +325,10 @@ def match_ayon_hierarchy_in_shotgrid(
         # add processed entity to the set for duplicity tracking
         processed_ids.add(sg_dict_id)
 
-        _add_items_to_queue(entity_hub, ay_entity_deck, ay_entity, sg_ay_dict)
+        _add_items_to_queue(
+            entity_hub, ay_entity_deck, ay_entity, sg_ay_dict,
+            addon_settings=addon_settings,
+        )
 
     try:
         # committing changes on project children
@@ -395,7 +402,8 @@ def _add_items_to_queue(
     entity_hub: ayon_api.entity_hub.EntityHub,
     ay_entity_deck: collections.deque,
     ay_entity: Union[TaskEntity, FolderEntity],
-    sg_ay_dict: Dict
+    sg_ay_dict: Dict,
+    addon_settings: Optional[Dict[str, Any]] = None,
 ):
     """Helper method to add children of an entity to the processing queue.
 
@@ -423,9 +431,12 @@ def _add_items_to_queue(
                 log.info(f"Skip hero version entity processing from AYON '{version['id']}'. ")
                 continue
 
-            ay_entity_deck.append(
-                (
-                    sg_ay_dict,
-                    entity_hub.get_version_by_id(version["id"])
-                )
-            )
+            version_entity = entity_hub.get_version_by_id(version["id"])
+            should_sync, reason = should_sync_version_to_sg(
+                version_entity, addon_settings)
+            if not should_sync:
+                log.debug(
+                    f"Skip version '{version['id']}': {reason}.")
+                continue
+
+            ay_entity_deck.append((sg_ay_dict, version_entity))

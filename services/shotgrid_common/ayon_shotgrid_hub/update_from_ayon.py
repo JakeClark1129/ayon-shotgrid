@@ -12,6 +12,7 @@ from utils import (
     get_sg_tags,
     get_sg_custom_attributes_data,
     get_sg_entity_type,
+    should_sync_version_to_sg,
     create_new_sg_entity
 )
 from constants import (
@@ -71,6 +72,14 @@ def create_sg_entity_from_ayon_event(
             f"Skip hero version entity processing from AYON '{ay_entity}'. "
         )
         return ay_entity
+
+    if ay_entity.entity_type == "version":
+        should_sync, reason = should_sync_version_to_sg(
+            ay_entity, addon_settings)
+        if not should_sync:
+            log.info(f"Not creating a Flow Version for '{ay_entity}': "
+                     f"{reason} ('Version sync' settings).")
+            return ay_entity
 
     sg_id = ay_entity.attribs.get("shotgridId")
     sg_type = ay_entity.attribs.get("shotgridType")

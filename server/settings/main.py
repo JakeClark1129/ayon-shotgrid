@@ -249,6 +249,26 @@ def _version_product_values_enum():
     ]
 
 
+class VersionSyncModel(BaseSettingsModel):
+    """Which AYON versions get a Flow Version (AYON -> Flow)."""
+    only_reviewable: bool = SettingsField(
+        False,
+        title="Only reviewable versions",
+        description=(
+            "Only versions published with 'reviewable' on (i.e. with "
+            "'review' in their families) get a Flow Version."
+        ),
+    )
+    product_base_types: list[str] = SettingsField(
+        default_factory=list,
+        title="Product base types",
+        description=(
+            "Only versions of these product base types (e.g. 'render', "
+            "'review', 'prerender') get a Flow Version. Empty: all."
+        ),
+    )
+
+
 class VersionProductFieldModel(BaseSettingsModel):
     _layout = "compact"
     ayon: str = SettingsField(
@@ -365,6 +385,15 @@ class ShotgridCompatibilitySettings(BaseSettingsModel):
         title="Folder re-parenting",
         default_factory=FolderReparentingModel,
         description=("Parent folders for AYON folders matching to SG types."),
+    )
+
+    version_sync: VersionSyncModel = SettingsField(
+        default_factory=VersionSyncModel,
+        title="Version sync",
+        description=(
+            "Filter which AYON publishes create Flow Versions. Hero "
+            "versions are never synced."
+        ),
     )
 
     version_product_fields: list[VersionProductFieldModel] = SettingsField(
