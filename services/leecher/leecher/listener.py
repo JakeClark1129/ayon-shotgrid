@@ -204,15 +204,17 @@ class ShotgridListener:
             filters.append(project_filter)
             filters.append(["event_type", "in", other_events])
 
-        if self._is_project_access_sync_enabled():
-            # Changes of the people assigned to a project. Matched on the
-            # Project entity itself, as Project events are not guaranteed
-            # to have their own 'project' field set.
-            project_users_filter = {
+        if (
+            "Project" in self.sg_enabled_entities
+            or self._is_project_access_sync_enabled()
+        ):
+            # Changes to the synced projects themselves (attributes such as
+            # fps, assigned users). Matched on the Project entity, as Project
+            # events are not guaranteed to have their own 'project' field.
+            project_changes_filter = {
                 "filter_operator": "all",
                 "filters": [
                     ["event_type", "is", "Shotgun_Project_Change"],
-                    ["attribute_name", "is", "users"],
                     ["entity", "in", sg_projects],
                 ],
             }
@@ -220,7 +222,7 @@ class ShotgridListener:
                 "filter_operator": "any",
                 "filters": [
                     {"filter_operator": "all", "filters": filters},
-                    project_users_filter,
+                    project_changes_filter,
                 ],
             }]
 

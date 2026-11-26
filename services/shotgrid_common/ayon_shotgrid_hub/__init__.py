@@ -20,7 +20,10 @@ from constants import (
     SHOTGRID_TYPE_ATTRIB
 )
 
-from .match_shotgrid_hierarchy_in_ayon import match_shotgrid_hierarchy_in_ayon
+from .match_shotgrid_hierarchy_in_ayon import (
+    match_shotgrid_hierarchy_in_ayon,
+    _sync_project_attributes,
+)
 from .match_ayon_hierarchy_in_shotgrid import match_ayon_hierarchy_in_shotgrid
 
 from .update_from_shotgrid import (
@@ -327,6 +330,31 @@ class AyonShotgridHub:
                 exc_info=True,
             )
 
+    def sync_project_attributes_from_sg(self):
+        """Copy the mapped project fields from ShotGrid to the AYON project.
+
+        Used for live Project changes; the full project sync does the same.
+        """
+        fields = []
+        for sg_attrib in self.custom_attribs_map.values():
+            fields.extend([sg_attrib, f"sg_{sg_attrib}"])
+        sg_project = self._sg.find_one(
+            "Project", [["id", "is", self._sg_project["id"]]], fields
+        )
+        if not sg_project:
+            self.log.warning(
+                f"ShotGrid project {self._sg_project['id']} not found.")
+            return
+        _sync_project_attributes(
+            self._ay_project,
+            self.custom_attribs_map,
+            sg_project,
+            self.settings,
+        )
+        self._ay_project.commit_changes()
+        self.log.info(f"Updated AYON project '{self.project_name}' "
+                      "attributes from ShotGrid.")
+
     def react_to_shotgrid_event(self, sg_event_meta):
         """React to events incoming from Shotgrid
 
@@ -362,13 +390,15 @@ class AyonShotgridHub:
                           f"{sg_event_meta['entity_id']}.")
             sg_event_meta["type"] = "entity_revival"
 
-        # People assigned to the project changed: update project access.
         if (
             sg_event_meta["entity_type"] == "Project"
             and sg_event_meta["type"] == "attribute_change"
-            and sg_event_meta.get("attribute_name") == "users"
         ):
-            self.sync_project_access()
+            # People assigned to the project changed: update project access.
+            if sg_event_meta.get("attribute_name") == "users":
+                self.sync_project_access()
+            else:
+                self.sync_project_attributes_from_sg()
             return
 
         match sg_event_meta["type"]:

@@ -1,6 +1,8 @@
 """Folder hierarchy rules: folder type mapping, AssetCategory fields and
 root relocation. Uses a minimal fake ShotGrid session, no server needed.
 """
+import os
+
 import pytest
 
 import utils
@@ -547,3 +549,55 @@ def test_skipped_versions_do_not_error_on_reviewable_or_paths():
     # A version that should exist in Flow but does not is still an error.
     with pytest.raises(ValueError, match="not yet synched"):
         utils.update_movie_paths(sg, hub, {"versionId": "v1"})
+
+
+def test_project_attributes_respect_scope():
+    from ayon_shotgrid_hub.match_shotgrid_hierarchy_in_ayon import (
+        _sync_project_attributes,
+    )
+
+    class _ProjectAttribs(dict):
+        def set(self, key, value):
+            self[key] = value
+
+    project = type("Project", (), {"attribs": _ProjectAttribs(),
+                                   "project_name": "P"})()
+    hub = type("Hub", (), {"project_entity": project})()
+    settings = {"compatibility_settings": {"custom_attribs_map": [
+        {"ayon": "fps", "sg": "fps", "type": "float",
+         "scope": ["Project", "Shot"]},
+        {"ayon": "frameStart", "sg": "cut_in", "type": "integer",
+         "scope": ["Shot"]},
+    ]}}
+    sg_project = {"id": 5, "sg_fps": 24.0, "sg_cut_in": 1001}
+
+    _sync_project_attributes(
+        hub, {"fps": "fps", "frameStart": "cut_in"}, sg_project, settings)
+
+    assert project.attribs["fps"] == 24.0
+    assert "frameStart" not in project.attribs
+    assert project.attribs["shotgridId"] == 5
+
+
+def test_leecher_collects_project_changes():
+    import importlib
+    import sys
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
+                                    "leecher"))
+    try:
+        listener = importlib.import_module("leecher.listener")
+    finally:
+        sys.path.pop(0)
+    leecher = listener.ShotgridListener.__new__(listener.ShotgridListener)
+    leecher.sg_enabled_entities = ["Project", "Shot"]
+    leecher.settings = {}
+    projects = [{"type": "Project", "id": 5}]
+
+    filters = leecher._build_shotgrid_filters(projects)
+
+    assert filters[0]["filter_operator"] == "any"
+    project_rule = filters[0]["filters"][1]
+    assert ["event_type", "is", "Shotgun_Project_Change"] in (
+        project_rule["filters"])
+    assert ["entity", "in", projects] in project_rule["filters"]

@@ -21,6 +21,7 @@ from utils import (
     should_apply_reparenting,
     is_reparentable_sg_type,
     update_ay_entity_custom_attributes, handle_comment,
+    get_custom_attribs_scopes,
 )
 
 from .update_from_shotgrid import sync_ay_entity_list_from_sg_event
@@ -199,7 +200,8 @@ def match_shotgrid_hierarchy_in_ayon(
         for sg_child_id in sg_ay_dicts_parents.get(sg_ay_dict_child_id, []):
             sg_ay_dicts_deck.append((ay_entity, sg_child_id))
 
-    _sync_project_attributes(entity_hub, custom_attribs_map, sg_project)
+    _sync_project_attributes(
+        entity_hub, custom_attribs_map, sg_project, addon_settings)
 
     try:
         entity_hub.commit_changes()
@@ -328,7 +330,9 @@ def _update_sg_entity(
             ay_entity.data.update(update_data)
 
 
-def _sync_project_attributes(entity_hub, custom_attribs_map, sg_project):
+def _sync_project_attributes(
+    entity_hub, custom_attribs_map, sg_project, addon_settings=None
+):
     """Sync project attributes from Shotgrid to AYON
 
     Args:
@@ -336,7 +340,10 @@ def _sync_project_attributes(entity_hub, custom_attribs_map, sg_project):
         custom_attribs_map (dict): A dictionary mapping AYON attributes to
             Shotgrid fields, without the `sg_` prefix.
         sg_project (dict): The Shotgrid project.
+        addon_settings (Optional[dict]): When given, attributes whose
+            'Scope' does not include 'Project' are skipped.
     """
+    scopes = get_custom_attribs_scopes(addon_settings)
     entity_hub.project_entity.attribs.set(
         SHOTGRID_ID_ATTRIB,
         sg_project["id"]
@@ -346,6 +353,12 @@ def _sync_project_attributes(entity_hub, custom_attribs_map, sg_project):
         "Project"
     )
     for ay_attrib, sg_attrib in custom_attribs_map.items():
+        if (
+            scopes is not None
+            and ay_attrib in scopes
+            and "Project" not in scopes[ay_attrib]
+        ):
+            continue
         attrib_value = sg_project.get(sg_attrib) \
                        or sg_project.get(f"sg_{sg_attrib}")
 
